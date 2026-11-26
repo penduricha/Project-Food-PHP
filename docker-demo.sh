@@ -14,6 +14,8 @@ set -eu
 cd "$(dirname -- "$0")"
 
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-fbn_demo_root}"
+APP_DB_PASSWORD="${APP_DB_PASSWORD:-fbn_demo_app_password}"
+APP_DB_USER="${APP_DB_USER:-restaurant_chain_scope_v2_app}"
 APP_PORT="${APP_PORT:-8080}"
 export MYSQL_ROOT_PASSWORD APP_PORT
 
@@ -50,7 +52,36 @@ if [ "$status" != "healthy" ]; then
   exit 1
 fi
 
-# 3) Migration (cần chỉ đúng host nội bộ db:3306, KHÔNG phải 127.0.0.1)
+# 3) Tạo/cập nhật tài khoản MySQL cho app với HOST '%' (kết nối container->container).
+#    setup.php của project tạo user chỉ cho '@localhost' (thiết kế cho Laragon cùng host)
+#    nên trong Docker app KHÔNG bao giờ kết nối được nếu không làm bước này.
+echo "==> Tạo/cập nhật tài khoản MySQL cho app ('${APP_DB_USER}'@'%')…"
+docker compose exec -T db mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "
+CREATE USER IF NOT EXISTS '${APP_DB_USER}'@'%' IDENTIFIED BY '${APP_DB_PASSWORD}';
+ALTER USER '${APP_DB_USER}'@'%' IDENTIFIED BY '${APP_DB_PASSWORD}';
+GRANT SELECT, INSERT, UPDATE, DELETE ON restaurant_chain_scope_v2.* TO '${APP_DB_USER}'@'%';
+FLUSH PRIVILEGES;"
+
+# 4) Ghi config/database.php BÊN TRONG container app, trỏ host 'db' (không phải 127.0.0.1).
+#    Ghi lại mỗi lần chạy nên container recreate cũng không làm mất kết nối.
+echo "==> Ghi config/database.php trong container app (host=db)…"
+tmp_config="$(mktemp)"
+cat > "$tmp_config" <<PHP
+<?php
+declare(strict_types=1);
+// Sinh bởi docker-demo.sh cho stack Docker demo. KHÔNG commit (đã gitignore).
+return [
+    'host' => 'db',
+    'port' => 3306,
+    'database' => 'restaurant_chain_scope_v2',
+    'username' => '${APP_DB_USER}',
+    'password' => '${APP_DB_PASSWORD}',
+];
+PHP
+docker compose cp "$tmp_config" app:/var/www/html/restaurant-chain/config/database.php
+rm -f "$tmp_config"
+
+# 5) Migration (cần chỉ đúng host nội bộ db:3306, KHÔNG phải 127.0.0.1)
 echo "==> Chạy migration (001 -> 006)…"
 docker compose exec -T \
   -e RESTAURANT_SETUP_HOST=db \
@@ -59,8 +90,9 @@ docker compose exec -T \
   -e RESTAURANT_SETUP_PASSWORD="${MYSQL_ROOT_PASSWORD}" \
   app php database/migrate.php
 
-# 4) Setup đầy đủ (idempotent): tạo database/app user/config + 5 tài khoản demo.
-#    Chạy lại KHÔNG đổi mật khẩu tài khoản web đã có và BỎ QUA migration đã áp dụng.
+# 6) Setup đầy đủ (idempotent): tạo database + 5 tài khoản demo.
+#    Đã có config/database.php (bước 4) nên setup KHÔNG tạo user ngẫu nhiên trùng lặp;
+#    chạy lại KHÔNG đổi mật khẩu tài khoản web đã có và BỎ QUA migration đã áp dụng.
 echo "==> Chạy setup (mật khẩu khởi tạo tài khoản web demo: 123456)…"
 docker compose exec -T \
   -e RESTAURANT_SETUP_HOST=db \
@@ -73,6 +105,7 @@ docker compose exec -T \
 echo
 echo "==================== DEMO SẴN SÀNG ===================="
 echo "Web:         http://localhost:${APP_PORT}/restaurant-chain/login.php"
+echo "             (mở http://localhost:${APP_PORT}/ cũng tự chuyển về trang đăng nhập)"
 echo "MySQL host:  127.0.0.1:3206   user=root   password=${MYSQL_ROOT_PASSWORD}"
 echo "Database:    restaurant_chain_scope_v2"
 echo "Tài khoản web demo (mật khẩu 123456):"

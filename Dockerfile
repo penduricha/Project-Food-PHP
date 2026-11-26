@@ -19,7 +19,7 @@ RUN apt-get update \
 # Cho phép .htaccess của dự án hoạt động (chặn truy cập trực tiếp config/, modules/, .git/).
 # Nếu thiếu AllowOverride All thì Apache bỏ qua .htaccess => mất lớp chặn
 # "Require all denied" của modules/.htaccess (chỉ demo nhưng vẫn nên đúng).
-RUN printf '<Directory /var/www/html/restaurant-chain>\n    AllowOverride All\n    Require all granted\n</Directory>\n' \
+RUN printf '<Directory /var/www/html/restaurant-chain>\n    AllowOverride All\n    Require all granted\n</Directory>\nRedirectMatch 302 ^/$ /restaurant-chain/login.php\n' \
       > /etc/apache2/conf-available/restaurant-chain.conf \
  && a2enconf restaurant-chain
 
