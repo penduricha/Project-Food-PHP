@@ -1,0 +1,11 @@
+.git
+.github
+docs
+tests
+node_modules
+config/database.php
+*.log
+.dockerignore
+docker-compose.yml
+docker-compose.dev.yml
+docker-demo.sh

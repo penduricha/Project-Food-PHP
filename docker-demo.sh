@@ -3,10 +3,12 @@
 # - MySQL 8.4: host 127.0.0.1:3206 (3306 trong container; tránh trùng cổng MySQL của máy bạn)
 # - Web Apache/PHP 8.3: http://localhost:8080/restaurant-chain/
 #
-# Dùng:  sh docker-demo.sh          (lần đầu hoặc cập nhật)
+# Dùng:  sh docker-demo.sh          (lần đầu hoặc cập nhật code — tự rebuild image)
 #        ./docker-demo.sh           (sau khi chmod +x)
-# Dừng:  docker compose down         (giữ dữ liệu trong volume fbn_mysql_data)
+# Dừng:  docker compose restart app  (giữ container + config/database.php trong container)
+#        docker compose down         (gỡ container; DỮ LIỆU DB vẫn giữ trong volume fbn_mysql_data)
 #        docker compose down -v      (xóa SẠCH dữ liệu, lần sau setup lại từ đầu)
+# Chế độ sửa-code-thấy-ngay (không rebuild): xem hướng dẫn trong docker-compose.dev.yml
 
 set -eu
 cd "$(dirname -- "$0")"
@@ -76,6 +78,7 @@ echo "Database:    restaurant_chain_scope_v2"
 echo "Tài khoản web demo (mật khẩu 123456):"
 echo "             chu_chuoi | quan_ly | phuc_vu | bep | kho"
 echo "Xem schema:  docker compose exec db mysql -uroot -p${MYSQL_ROOT_PASSWORD} restaurant_chain_scope_v2"
+echo "Sửa code?    Chạy lại: sh docker-demo.sh   (tự build lại image từ source hiện tại)"
 echo "Dừng demo:   docker compose down          (giữ dữ liệu)"
 echo "             docker compose down -v       (xóa SẠCH dữ liệu)"
 echo "======================================================="

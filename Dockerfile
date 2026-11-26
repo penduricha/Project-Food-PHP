@@ -29,4 +29,9 @@ RUN php -r "exit(defined('PASSWORD_ARGON2ID') ? 0 : 1);" \
  || (echo 'ERROR: PHP image chưa có Argon2id (PASSWORD_ARGON2ID) — không thể hash mật khẩu demo.' >&2 && exit 1)
 
 WORKDIR /var/www/html/restaurant-chain
+
+# Đóng gói source vào image (xem .dockerignore). Không chứa config/database.php
+# (bị .dockerignore loại) — setup.php sẽ tự sinh bên trong container khi demo chạy.
+COPY . /var/www/html/restaurant-chain
+
 EXPOSE 80

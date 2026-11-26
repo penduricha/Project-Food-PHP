@@ -1,0 +1,19 @@
+# TÙY CHỌN — chế độ phát triển (giống Laragon): sửa code trên host thấy ngay, không cần rebuild.
+# YÊU CẦU: thêm thư mục repo vào Docker Desktop -> Settings -> Resources -> File Sharing
+# (với Docker Desktop trên Linux/Mac). Nếu không bật, container app sẽ báo lỗi
+# "path ... is not shared from the host" — khi đó hãy dùng docker-compose.yml mặc định
+# (source đã được COPY vào image khi build).
+#
+# Dùng:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml exec -e RESTAURANT_SETUP_HOST=db \
+#     -e RESTAURANT_SETUP_PORT=3306 -e RESTAURANT_SETUP_USER=root \
+#     -e RESTAURANT_SETUP_PASSWORD=$(docker compose exec db printenv MYSQL_ROOT_PASSWORD) \
+#     app php database/migrate.php
+# hoặc đơn giản chạy: sh docker-demo.sh (script không bind-mount; dùng compose mặc định)
+
+services:
+  app:
+    volumes:
+      # Bind-mount repo hiện tại vào docroot, giữ nguyên BASE_URL=/restaurant-chain của config/app.php
+      - ./:/var/www/html/restaurant-chain:rw

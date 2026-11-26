@@ -1,5 +1,9 @@
 # Demo F&B Nodes bằng Docker — tương đương stack Laragon (Apache + PHP 8.3 + MySQL 8.4).
 # MySQL đổi sang port HOST 3206 để tránh trùng cổng 3306 trên máy bạn.
+# Source được COPY vào image app (không bind-mount) → chạy được cả khi Docker Desktop
+# chưa chia sẻ đường dẫn repo (vd /media/lenovo/D/...). Sửa code xong chạy lại sh docker-demo.sh.
+# Chế độ sửa-code-thấy-ngay (cần Docker Desktop Settings -> Resources -> File Sharing):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 # Chạy nhanh: sh docker-demo.sh   (build, chờ MySQL, chạy migration + seed, in URL)
 
 name: fbn-demo
@@ -37,9 +41,6 @@ services:
     ports:
       # Web demo ở http://localhost:8080/restaurant-chain/ (đổi qua APP_PORT nếu trùng)
       - "${APP_PORT:-8080}:80"
-    volumes:
-      # Bind-mount repo hiện tại vào docroot, giữ nguyên BASE_URL=/restaurant-chain của config/app.php
-      - ./:/var/www/html/restaurant-chain:rw
     depends_on:
       db:
         condition: service_healthy
