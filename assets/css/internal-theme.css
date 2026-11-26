@@ -90,3 +90,19 @@
 .internal-page[data-page="floor"] .res-create-booking:hover{background:var(--accent-dark);border-color:var(--accent-dark);box-shadow:none}
 .internal-page[data-page="floor"] .res-create-booking:active{background:var(--accent-dark)}
 @media(max-width:700px){.internal-page .topbar .title-lg{font-size:23px}.internal-page .sidebar{box-shadow:8px 0 30px #183c3226}}
+
+/* Ảnh món ăn: ảnh URL (copy từ Google Images) phủ lên ô chữ cái đại diện */
+.internal-page .food-thumb{position:relative;overflow:hidden}
+.internal-page .food-thumb-initials{display:grid;place-items:center;width:100%;height:100%}
+.internal-page .food-thumb-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--panel-soft)}
+
+/* Ô nhập đường dẫn ảnh trong form thêm/cập nhật món: xem trước + nút tìm Google Images */
+.internal-page .hinh-anh-tools{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.internal-page .hinh-anh-tools .muted{font-size:10px;color:var(--muted);max-width:520px;line-height:1.5}
+.internal-page .dish-image-preview{display:flex;align-items:center;gap:12px;margin-top:10px;min-height:8px}
+.internal-page .dish-image-preview img{width:120px;height:80px;object-fit:cover;border-radius:5px;border:1px solid var(--line);background:var(--panel-soft)}
+.internal-page .dish-image-preview .preview-error{font-size:10px;color:var(--danger)}
+
+/* Ảnh lớn trong khối chi tiết món ăn */
+.internal-page .dish-detail-thumb{height:160px;border-radius:6px;margin:4px 0 10px;font-size:34px}
+.internal-page .dish-detail-visual{max-width:340px}

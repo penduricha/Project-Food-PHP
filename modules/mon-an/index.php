@@ -63,6 +63,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = post_text('action');
 
+    // Giữ lại dữ liệu đang nhập dở để hiển thị lại khi có lỗi (nhánh "nhập lại" của SD-19/SD-21).
+    $formOld = null;
+
+    if ($action === 'add' || $action === 'update') {
+        $formOld = [
+            'action'  => $action,
+            'maMon'   => trim(post_text('maMon')),
+            'maNhom'  => trim(post_text('maNhom')),
+            'tenMon'  => trim(post_text('tenMon')),
+            'donGia'  => trim(post_text('donGia')),
+            'hinhAnh' => trim(post_text('hinhAnh')),
+            'moTa'    => trim(post_text('moTa')),
+        ];
+    }
+
     try {
         if ($action === 'add' || $action === 'update') {
             $maMon = trim(post_text('maMon'));
@@ -82,6 +97,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (mb_strlen($hinhAnh) > 255 || mb_strlen($moTa) > 500) {
                 throw new RuntimeException('Hình ảnh tối đa 255 ký tự, mô tả tối đa 500 ký tự.');
+            }
+
+            // Chuẩn hoá URL hình ảnh: chấp nhận http(s) (copy từ Google Images) hoặc assets/ nội bộ.
+            $hinhAnhUrl = dish_image_url($hinhAnh);
+
+            if ($hinhAnh !== '' && $hinhAnhUrl === null) {
+                throw new RuntimeException('Đường dẫn hình ảnh phải là URL http(s) (ví dụ copy từ Google Images) hoặc đường dẫn assets/ nội bộ, tối đa 255 ký tự và không chứa khoảng trắng.');
             }
 
             // Kiểm tra nhóm món còn hoạt động.
@@ -138,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $maNhom,
                     $tenMon,
                     $donGia,
-                    $hinhAnh !== '' ? $hinhAnh : null,
+                    $hinhAnhUrl,
                     $moTa !== '' ? $moTa : null
                 ]);
 
@@ -155,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $maNhom,
                 $tenMon,
                 $donGia,
-                $hinhAnh !== '' ? $hinhAnh : null,
+                $hinhAnhUrl,
                 $moTa !== '' ? $moTa : null,
                 $maMon
             ]);
@@ -298,6 +320,19 @@ $canManage = can('menu.manage');
 $editDish = null;
 $editId = trim(is_string($_GET['edit'] ?? null) ? $_GET['edit'] : '');
 
+// Khi POST lỗi, mở lại form với đúng dữ liệu đang nhập dở.
+$formValues = null;
+
+if (isset($formOld) && is_array($formOld)) {
+    $formValues = $formOld;
+
+    if ($formValues['action'] === 'add') {
+        $editId = '';
+    } else {
+        $editId = $formValues['maMon'];
+    }
+}
+
 if ($editId !== '' && $canManage) {
     $stmt = $pdo->prepare(
         "SELECT m.*
@@ -309,9 +344,30 @@ if ($editId !== '' && $canManage) {
     $editDish = $stmt->fetch() ?: null;
 }
 
-// Chỉ mở form khi người dùng chọn thêm hoặc cập nhật.
+// Chỉ mở form khi người dùng chọn thêm hoặc cập nhật (hoặc quay lại form sau lỗi).
 $addMode = ($_GET['add'] ?? '') === '1';
+
+if ($formValues !== null) {
+    $addMode = $formValues['action'] === 'add';
+}
+
 $showForm = $addMode || $editId !== '';
+
+// Form đang ở chế độ nào: thêm hay cập nhật (ưu tiên dữ liệu nhập dở sau lỗi).
+$isEdit = $formValues !== null ? $formValues['action'] === 'update' : $editDish !== null;
+
+// Giá trị hiển thị trong form: ưu tiên dữ liệu nhập dở, sau đó dữ liệu trong DB.
+$formValue = static function (string $key) use ($formValues, $editDish): string {
+    $source = $formValues ?? ($editDish !== null ? [
+        'maNhom'  => $editDish['maNhom'] ?? '',
+        'tenMon'  => $editDish['tenMon'] ?? '',
+        'donGia'  => (string)($editDish['donGia'] ?? ''),
+        'hinhAnh' => $editDish['hinhAnh'] ?? '',
+        'moTa'    => $editDish['moTa'] ?? '',
+    ] : []);
+
+    return (string)($source[$key] ?? '');
+};
 ?>
 
 <div class="screen-content menu-management">
@@ -343,12 +399,24 @@ $showForm = $addMode || $editId !== '';
             <h3>Chi tiết món ăn</h3>
 
             <?php if ($detail): ?>
+                <?php $detailImage = dish_image_url($detail['hinhAnh'] ?? null); ?>
+                <div class="dish-detail-visual">
+                    <?= dish_thumb_html($detail['tenMon'], $detail['hinhAnh'] ?? null, 'dish-detail-thumb') ?>
+                </div>
                 <p><strong>Mã món:</strong> <?= e($detail['maMon']) ?></p>
                 <p><strong>Tên món:</strong> <?= e($detail['tenMon']) ?></p>
                 <p><strong>Nhóm món:</strong> <?= e($detail['tenNhom']) ?></p>
                 <p><strong>Đơn giá:</strong> <?= number_format((float)$detail['donGia'], 0, ',', '.') ?>đ</p>
                 <p><strong>Mô tả:</strong> <?= e($detail['moTa'] ?? '') ?></p>
-                <p><strong>Hình ảnh:</strong> <?= e($detail['hinhAnh'] ?? '') ?></p>
+                <p><strong>Hình ảnh:</strong>
+                    <?php if ($detailImage !== null): ?>
+                        <a href="<?= e($detailImage) ?>" target="_blank" rel="noopener noreferrer nofollow"><?= e($detail['hinhAnh']) ?></a>
+                    <?php elseif (!empty($detail['hinhAnh'])): ?>
+                        <?= e($detail['hinhAnh']) ?> <small>(đường dẫn không hợp lệ)</small>
+                    <?php else: ?>
+                        Chưa có
+                    <?php endif; ?>
+                </p>
                 <p><strong>Định mức nguyên vật liệu:</strong> <?= e($detail['trangThaiDinhMuc']) ?></p>
                 <p><strong>Trạng thái:</strong> <?= e($detail['trangThai']) ?></p>
 
@@ -406,9 +474,7 @@ $showForm = $addMode || $editId !== '';
             <?php foreach ($dishes as $dish): ?>
                 <div class="card menu-card <?= $dish['trangThai'] === 'NGUNG' ? 'disabled-card' : '' ?>">
 
-                    <div class="food-thumb">
-                        <?= e(mb_strtoupper(mb_substr($dish['tenMon'], 0, 2))) ?>
-                    </div>
+                    <?= dish_thumb_html($dish['tenMon'], $dish['hinhAnh'] ?? null) ?>
 
                     <div class="menu-info">
 
@@ -461,9 +527,9 @@ $showForm = $addMode || $editId !== '';
     <?php if ($canManage && $showForm): ?>
         <div class="card" id="form-mon-an" style="padding:20px;margin-top:24px;">
 
-            <h3><?= $editDish ? 'Cập nhật món ăn' : 'Thêm món ăn mới' ?></h3>
+            <h3><?= $isEdit ? 'Cập nhật món ăn' : 'Thêm món ăn mới' ?></h3>
 
-            <?php if ($editId !== '' && !$editDish): ?>
+            <?php if ($editId !== '' && !$editDish && $formValues === null): ?>
                 <p>Không tìm thấy món ăn cần cập nhật.</p>
             <?php else: ?>
 
@@ -471,30 +537,30 @@ $showForm = $addMode || $editId !== '';
                     <?= csrf_input() ?>
 
                     <input type="hidden" name="action"
-                           value="<?= $editDish ? 'update' : 'add' ?>">
+                           value="<?= $isEdit ? 'update' : 'add' ?>">
 
-                    <?php if ($editDish): ?>
+                    <?php if ($isEdit): ?>
                         <input type="hidden" name="maMon"
-                               value="<?= e($editDish['maMon']) ?>">
+                               value="<?= e($formValues['maMon'] ?? ($editDish['maMon'] ?? '')) ?>">
                     <?php endif; ?>
 
                     <div class="form-grid">
 
                         <div class="field">
-                            <label class="field-label">Tên món ăn</label>
-                            <input class="control" type="text" name="tenMon"
+                            <label class="field-label" for="tenMon">Tên món ăn</label>
+                            <input class="control" type="text" name="tenMon" id="tenMon"
                                    maxlength="100" required
-                                   value="<?= e($editDish['tenMon'] ?? '') ?>">
+                                   value="<?= e($formValue('tenMon')) ?>">
                         </div>
 
                         <div class="field">
-                            <label class="field-label">Nhóm món</label>
-                            <select class="control" name="maNhom" required>
+                            <label class="field-label" for="maNhom">Nhóm món</label>
+                            <select class="control" name="maNhom" id="maNhom" required>
                                 <option value="">-- Chọn nhóm món --</option>
 
                                 <?php foreach ($groups as $group): ?>
                                     <option value="<?= e($group['maNhom']) ?>"
-                                        <?= ($editDish['maNhom'] ?? '') === $group['maNhom'] ? 'selected' : '' ?>>
+                                        <?= $formValue('maNhom') === $group['maNhom'] ? 'selected' : '' ?>>
                                         <?= e($group['tenNhom']) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -503,30 +569,41 @@ $showForm = $addMode || $editId !== '';
                         </div>
 
                         <div class="field">
-                            <label class="field-label">Đơn giá (VNĐ)</label>
-                            <input class="control" type="number" name="donGia"
+                            <label class="field-label" for="donGia">Đơn giá (VNĐ)</label>
+                            <input class="control" type="number" name="donGia" id="donGia"
                                    min="0" step="0.01" required
-                                   value="<?= e((string)($editDish['donGia'] ?? '')) ?>">
+                                   value="<?= e($formValue('donGia')) ?>">
                         </div>
 
                         <div class="field">
-                            <label class="field-label">Đường dẫn hình ảnh (nếu có)</label>
-                            <input class="control" type="text" name="hinhAnh"
-                                   maxlength="255"
-                                   value="<?= e($editDish['hinhAnh'] ?? '') ?>">
+                            <label class="field-label" for="hinhAnh">Đường dẫn hình ảnh (nếu có)</label>
+                            <input class="control" type="text" name="hinhAnh" id="hinhAnh"
+                                   maxlength="255" inputmode="url"
+                                   placeholder="https://... (copy image address từ Google Images)"
+                                   value="<?= e($formValue('hinhAnh')) ?>"
+                                   data-dish-image-input>
+                            <div class="hinh-anh-tools">
+                                <a class="btn btn-secondary btn-compact" data-google-image-search
+                                   href="https://www.google.com/search?tbm=isch&amp;q=<?= rawurlencode($formValue('tenMon') !== '' ? $formValue('tenMon') . ' món ăn' : 'món ăn') ?>"
+                                   target="_blank" rel="noopener noreferrer">
+                                    Tìm ảnh trên Google ↗
+                                </a>
+                                <span class="muted">Mở Google Images → chuột phải vào ảnh → “Sao chép địa chỉ hình ảnh” → dán vào ô trên.</span>
+                            </div>
+                            <div class="dish-image-preview" data-dish-image-preview aria-live="polite"></div>
                         </div>
 
                         <div class="field">
-                            <label class="field-label">Mô tả</label>
-                            <textarea class="control textarea" name="moTa"
-                                      maxlength="500"><?= e($editDish['moTa'] ?? '') ?></textarea>
+                            <label class="field-label" for="moTa">Mô tả</label>
+                            <textarea class="control textarea" name="moTa" id="moTa"
+                                      maxlength="500"><?= e($formValue('moTa')) ?></textarea>
                         </div>
 
                     </div>
 
                     <div class="modal-actions">
                         <button type="submit" class="btn btn-primary">
-                            <?= $editDish ? 'Lưu cập nhật' : 'Thêm món ăn' ?>
+                            <?= $isEdit ? 'Lưu cập nhật' : 'Thêm món ăn' ?>
                         </button>
 
                         <a href="<?= e(page_url('menu')) ?>" class="btn btn-ghost">
@@ -541,3 +618,7 @@ $showForm = $addMode || $editId !== '';
     <?php endif; ?>
 
 </div>
+
+<?php if ($formValues !== null): ?>
+<script>document.getElementById('form-mon-an')?.scrollIntoView({ block: 'start' });</script>
+<?php endif; ?>

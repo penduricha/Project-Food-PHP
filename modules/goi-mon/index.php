@@ -236,7 +236,7 @@ if (!isset($isCheckoutPage)) { http_response_code(404); exit; }
           $code = get_food_code($mon['tenMon']);
         ?>
           <div class="card menu-card" data-dish-id="<?= e((string)$mon['maMon']) ?>" data-add-dish="<?= e($mon['tenMon']) ?>" data-dish-category="<?= e($mon['tenNhom'] ?? 'Món chính') ?>">
-            <div class="food-thumb food-<?= e($code) ?>"><?= e($code) ?></div>
+            <?= dish_thumb_html($mon['tenMon'], $mon['hinhAnh'] ?? null, 'food-' . $code, $code) ?>
             <div class="menu-info">
               <span class="badge badge-success">Sẵn sàng</span>
               <strong><?= e($mon['tenMon']) ?></strong>

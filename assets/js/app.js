@@ -371,3 +371,43 @@ if (document.body.dataset.canEdit === '0' && !['booking','tracking','accounts','
     $$(selectors).forEach(node=>{ if(node.tagName==='BUTTON')node.disabled=true; else {node.setAttribute('aria-disabled','true');node.style.pointerEvents='none';} });
     $$('main [data-modal]').forEach(button=>{if(!button.dataset.modal.startsWith('Chi tiết'))button.disabled=true;});
 }
+
+// Quản lý món ăn: xem trước ảnh từ URL và mở Google Images theo tên món.
+// Chỉ chạy trên trang menu (các phần tử [data-dish-image-input] mới tồn tại ở đó).
+const dishImageInput = $('[data-dish-image-input]');
+if (dishImageInput) {
+    const dishNameInput = $('#tenMon');
+    const searchLink = $('[data-google-image-search]');
+    const previewBox = $('[data-dish-image-preview]');
+    const internalPath = /^assets\/[A-Za-z0-9\-._/%]+$/;
+    const isUsable = raw => {
+        const value = String(raw).trim();
+        if (!value || /\s/.test(value) || value.length > 255) return false;
+        if (/^https?:\/\//i.test(value)) { try { new URL(value); return true; } catch { return false; } }
+        return internalPath.test(value) && !value.includes('..');
+    };
+    const updatePreview = () => {
+        if (!previewBox) return;
+        previewBox.replaceChildren();
+        const raw = dishImageInput.value.trim();
+        if (!isUsable(raw)) return;
+        const img = document.createElement('img');
+        img.src = raw; img.alt = 'Xem trước hình ảnh món ăn'; img.referrerPolicy = 'no-referrer';
+        img.addEventListener('error', () => {
+            const note = document.createElement('span');
+            note.className = 'preview-error';
+            note.textContent = 'Không tải được ảnh — kiểm tra lại URL (copy đúng "địa chỉ hình ảnh").';
+            previewBox.replaceChildren(note);
+        });
+        previewBox.append(img);
+    };
+    const updateSearchLink = () => {
+        if (!searchLink) return;
+        const name = (dishNameInput?.value || '').trim();
+        searchLink.href = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent((name || 'món ăn') + ' món ăn');
+    };
+    dishImageInput.addEventListener('input', updatePreview);
+    dishNameInput?.addEventListener('input', updateSearchLink);
+    updatePreview();
+    updateSearchLink();
+}

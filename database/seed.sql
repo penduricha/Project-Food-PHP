@@ -9,7 +9,13 @@ INSERT IGNORE INTO VaiTro (maVaiTro,tenVaiTro) VALUES
 -- Dữ liệu danh mục minh họa; không tạo doanh thu, lương hoặc lượng tồn giả.
 INSERT IGNORE INTO CaLamViec(maCa,tenCa,thoiGianBatDau,thoiGianKetThuc,quaNgay) VALUES ('CA_SANG','Ca sáng','08:00:00','16:00:00',0),('CA_TOI','Ca tối','16:00:00','23:00:00',0),('CA_DEM','Ca đêm','22:00:00','06:00:00',1);
 INSERT IGNORE INTO NhomMon(maNhom,maChuoi,tenNhom) VALUES ('KHAI_VI','FBN','Khai vị'),('MON_CHINH','FBN','Món chính'),('TRANG_MIEN','FBN','Tráng miệng'),('DO_UONG','FBN','Đồ uống');
-INSERT IGNORE INTO MonAn(maMon,maNhom,tenMon,donGia) VALUES ('MA001','KHAI_VI','Gỏi cuốn tôm thịt',89000),('MA002','KHAI_VI','Bò nướng lá lốt',149000),('MA003','MON_CHINH','Cá chẽm sốt chanh',249000),('MA004','MON_CHINH','Bò lúc lắc',229000),('MA005','MON_CHINH','Cơm chiên hải sản',169000),('MA006','MON_CHINH','Lẩu nấm đặc biệt',329000);
+INSERT IGNORE INTO MonAn(maMon,maNhom,tenMon,donGia,hinhAnh) VALUES
+('MA001','KHAI_VI','Gỏi cuốn tôm thịt',89000,'https://pos.nvncdn.com/867afd-52643/art/artCT/20230830_0n8HY7hQ.jpg'),
+('MA002','KHAI_VI','Bò nướng lá lốt',149000,'https://i0.wp.com/beyondsweetandsavory.com/wp-content/uploads/2021/09/Vietnamese-grilled-beef-wrapped-in-betel-leaves-Vy-Tran-12-of-12-853x1280-1.jpg?resize=610,916&ssl=1'),
+('MA003','MON_CHINH','Cá chẽm sốt chanh',249000,'https://img-global.cpcdn.com/recipes/572868ed33b0bef2/300x220cq80/ca-h%E1%BB%93i-s%E1%BB%91t-chanh-leo-recipe-main-photo.jpg'),
+('MA004','MON_CHINH','Bò lúc lắc',229000,'https://thewoksoflife.com/wp-content/uploads/2025/07/shaking-beef-12.jpg'),
+('MA005','MON_CHINH','Cơm chiên hải sản',169000,'https://cdn.tgdd.vn/2021/01/CookRecipe/Avatar/com-chien-hai-san-thumbnail-1.jpg'),
+('MA006','MON_CHINH','Lẩu nấm đặc biệt',329000,'https://vietnamdiscovery.com/wp-content/uploads/2026/10/mushroom-hotpot-recipe-lau-nam-1-vd.jpg');
 INSERT IGNORE INTO NguyenVatLieu(maNVL,maChuoi,tenNVL,donViTinh) VALUES ('NVL001','FBN','Thịt bò','kg'),('NVL002','FBN','Cá chẽm phi lê','kg'),('NVL003','FBN','Chanh vàng','kg'),('NVL004','FBN','Bơ lạt','kg'),('NVL005','FBN','Rau củ theo mùa','kg'),('NVL006','FBN','Muối biển','kg'),('NVL007','FBN','Dầu ăn','lit'),('NVL008','FBN','Nấm đùi gà','kg');
 INSERT IGNORE INTO DinhMucNVL(maMon,maNVL,dinhMuc) VALUES ('MA003','NVL002',0.250),('MA003','NVL003',0.035),('MA003','NVL004',0.020),('MA003','NVL005',0.120);
 UPDATE MonAn SET trangThaiDinhMuc='DA_CO' WHERE maMon='MA003' AND EXISTS (SELECT 1 FROM DinhMucNVL WHERE maMon='MA003');
