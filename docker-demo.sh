@@ -105,6 +105,11 @@ docker compose exec -T \
   -e RESTAURANT_DEMO_PASSWORD=123456 \
   app php database/setup.php
 
+# 7) Mở khóa đăng nhập: xóa bộ đếm nhập sai (tài khoản bị khóa 15 phút sau 5 lần sai).
+#    Demo thường bị khóa do thử nhiều lần; bước này an toàn, không đụng dữ liệu nghiệp vụ.
+echo "==> Mở khóa đăng nhập (xóa bộ đếm GioiHanDangNhap)…"
+docker compose exec -T db mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" restaurant_chain_scope_v2 -e "DELETE FROM GioiHanDangNhap;"
+
 echo
 echo "==================== DEMO SẴN SÀNG ===================="
 echo "Web:         http://localhost:${APP_PORT}/restaurant-chain/login.php"
@@ -114,6 +119,7 @@ echo "Database:    restaurant_chain_scope_v2"
 echo "Tài khoản web demo (mật khẩu 123456):"
 echo "             chu_chuoi | quan_ly | phuc_vu | bep | kho"
 echo "Xem schema:  docker compose exec db mysql -uroot -p${MYSQL_ROOT_PASSWORD} restaurant_chain_scope_v2"
+echo "Đăng nhập 401? Chạy lại: sh docker-demo.sh   (bước 7 tự mở khóa tài khoản)"
 echo "Sửa code?    Chạy lại: sh docker-demo.sh   (tự build lại image từ source hiện tại)"
 echo "Dừng demo:   docker compose down          (giữ dữ liệu)"
 echo "             docker compose down -v       (xóa SẠCH dữ liệu)"

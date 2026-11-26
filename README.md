@@ -130,6 +130,27 @@ Hướng dẫn tích hợp module và bảng quyền nằm trong docs/PHAN_QUYEN
 
 Tên đăng nhập dùng thử: chu_chuoi, quan_ly, phuc_vu, bep, kho. Mật khẩu là mật khẩu đã chọn khi setup. Chạy lại setup giữ nguyên mật khẩu tài khoản đã có. Đổi mật khẩu dùng thử trong menu Đổi mật khẩu trước khi sử dụng dữ liệu thật.
 
+### Demo nhanh bằng Docker (không cần Laragon)
+
+1. Yêu cầu Docker Engine + plugin `docker compose`. Source được đóng gói vào image; không cần chia sẻ thư mục với Docker Desktop.
+2. Chạy một lệnh: `sh docker-demo.sh` (nếu cổng 8080 đã bận: `APP_PORT=8090 sh docker-demo.sh`).
+3. Mở `http://localhost:8080/restaurant-chain/login.php` (mặc định 8080). `/` tự chuyển về trang đăng nhập. MySQL 8.4 nằm ở `127.0.0.1:3206` (3306 bên trong container), database `restaurant_chain_scope_v2`; gốc mật khẩu `fbn_demo_root` (đổi qua biến môi trường `MYSQL_ROOT_PASSWORD`), tài khoản DB của app là `restaurant_chain_scope_v2_app` (đổi qua `APP_DB_PASSWORD`).
+4. Tài khoản dùng thử: chu_chuoi, quan_ly, phuc_vu, bep, kho — mật khẩu `123456`.
+5. Mỗi lần chạy script: tự build lại image, tạo/cập nhật user MySQL cho app, ghi lại `config/database.php` trong container và **xóa bộ đếm đăng nhập sai** (mở khóa tài khoản bị khóa do nhập sai nhiều lần).
+6. Dừng demo: `docker compose down` (giữ dữ liệu trong volume `fbn_mysql_data`) hoặc `docker compose down -v` (xóa sạch, lần sau setup lại từ đầu). Sau khi sửa code, chạy lại `sh docker-demo.sh` để build lại.
+
+Gặp lỗi **401 Unauthorized** khi đăng nhập? Do đã nhập sai quá nhiều lần (khóa 15 phút) hoặc sai mật khẩu. Cách xử lý:
+
+- Mở khóa nhanh: chạy lại `sh docker-demo.sh` (bước xóa bộ đếm), hoặc chỉ xóa khóa bằng:
+  `docker compose exec -T db mysql -uroot -pfbn_demo_root -e "DELETE FROM restaurant_chain_scope_v2.GioiHanDangNhap;"`
+- Nếu không chắc mật khẩu: đặt lại 123456 cho một tài khoản trong container app:
+
+  ```bash
+  docker compose exec -T app php -r "\$c=require '/var/www/html/restaurant-chain/config/database.php'; \$p=new PDO('mysql:host='.\$c['host'].';port='.\$c['port'].';dbname='.\$c['database'].';charset=utf8mb4',\$c['username'],\$c['password'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]); \$s=\$p->prepare('UPDATE TaiKhoan SET matKhau=?,phienBan=phienBan+1 WHERE tenDangNhap=?'); \$s->execute([password_hash('123456',PASSWORD_ARGON2ID),'chu_chuoi']); echo 'OK rows='.\$s->rowCount().\"\n\";"
+  ```
+
+- Lưu ý: log Apache từ yêu cầu của ứng dụng khác (ví dụ cổng 5173) lẫn vào `docker compose logs app` là bình thường, không liên quan đến đăng nhập.
+
 Các thư mục config, includes, layouts, modules, database bị chặn truy cập trực tiếp qua Apache. Các trang module được nạp qua index.php. setup.php chỉ chạy bằng CLI.
 
 Tài liệu tham khảo PHP: https://www.php.net/manual/en/function.password-hash.php và https://www.php.net/manual/en/features.session.security.management.php
