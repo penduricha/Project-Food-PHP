@@ -78,8 +78,11 @@ return [
     'password' => '${APP_DB_PASSWORD}',
 ];
 PHP
+chmod 0644 "$tmp_config"  # mktemp tạo file 0600 -> Apache (www-data) không đọc được
 docker compose cp "$tmp_config" app:/var/www/html/restaurant-chain/config/database.php
 rm -f "$tmp_config"
+# Đảm bảo quyền đọc đúng cho Apache (www-data): cp có thể giữ uid host nên chown lại trong container
+docker compose exec -T app sh -c 'chown www-data:www-data /var/www/html/restaurant-chain/config/database.php && chmod 0640 /var/www/html/restaurant-chain/config/database.php'
 
 # 5) Migration (cần chỉ đúng host nội bộ db:3306, KHÔNG phải 127.0.0.1)
 echo "==> Chạy migration (001 -> 006)…"
