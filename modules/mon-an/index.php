@@ -1,4 +1,3 @@
-
 <?php
 if (!defined('APP_ENTRY')) {
     http_response_code(404);
@@ -10,6 +9,8 @@ require_permission('menu.view');
 $pdo = db();
 $maChuoi = 'FBN';
 $error = '';
+// Dữ liệu giữ lại cho form khi lưu thất bại (nhánh lỗi/nhập lại của SD-19/21).
+$formSticky = null;
 
 function mon_an_redirect(string $message): never
 {
@@ -56,7 +57,39 @@ function mon_an_generate_id(PDO $pdo): string
     throw new RuntimeException('Không thể tạo mã món ăn. Vui lòng thử lại.');
 }
 
-// Xử lý thêm, cập nhật và ngừng kinh doanh.
+// Chuẩn hóa đường dẫn ảnh món ăn (SD-19/21). Chấp nhận địa chỉ ảnh trực tiếp http/https;
+// nếu người dùng dán link trang kết quả Google Ảnh (google.com/imgres?imgurl=...)
+// thì tự tách lấy địa chỉ ảnh gốc. Sai định dạng thì báo lỗi để người dùng nhập lại.
+function mon_an_image_url(string $raw): string
+{
+    $raw = trim($raw);
+
+    if ($raw === '') {
+        return '';
+    }
+
+    if (preg_match('/[?&]imgurl=([^&]+)/i', $raw, $matches)) {
+        $candidate = $matches[1];
+
+        if (!preg_match('/^https?:\/\//i', $candidate)) {
+            $candidate = urldecode($candidate);
+        }
+
+        if (preg_match('/^https?:\/\//i', $candidate)) {
+            $raw = $candidate;
+        }
+    }
+
+    if (!preg_match('/^https?:\/\/\S+$/i', $raw)) {
+        throw new RuntimeException(
+            'Hình ảnh phải là đường dẫn http/https. Bấm "Tìm ảnh trên Google", sao chép địa chỉ hình ảnh rồi dán vào đây.'
+        );
+    }
+
+    return $raw;
+}
+
+// Xử lý thêm (SD-19), cập nhật (SD-21) và ngừng kinh doanh (SD-22).
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_permission('menu.manage');
     require_csrf();
@@ -69,7 +102,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $maNhom = trim(post_text('maNhom'));
             $tenMon = trim(post_text('tenMon'));
             $donGia = trim(post_text('donGia'));
-            $hinhAnh = trim(post_text('hinhAnh'));
+            $hinhAnhGoc = trim(post_text('hinhAnh'));
+            $hinhAnh = mon_an_image_url($hinhAnhGoc);
             $moTa = trim(post_text('moTa'));
 
             if ($tenMon === '' || mb_strlen($tenMon) > 100) {
@@ -84,10 +118,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Hình ảnh tối đa 255 ký tự, mô tả tối đa 500 ký tự.');
             }
 
-            // Kiểm tra nhóm món còn hoạt động.
+            $pdo->beginTransaction();
+
+            // Thứ tự khóa thống nhất: NhomMon -> MonAn -> ThucDonChiNhanh.
+            // Khóa nhóm món FOR UPDATE trước để hai yêu cầu cùng nhóm không kiểm tra
+            // trùng tên song song và không tranh chấp khóa với luồng ngừng kinh doanh.
             $groupStmt = $pdo->prepare(
                 "SELECT maNhom FROM NhomMon
-                 WHERE maNhom = ? AND maChuoi = ? AND trangThai = 'HOAT_DONG'"
+                 WHERE maNhom = ? AND maChuoi = ? AND trangThai = 'HOAT_DONG'
+                 FOR UPDATE"
             );
             $groupStmt->execute([$maNhom, $maChuoi]);
 
@@ -95,17 +134,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Nhóm món không tồn tại hoặc đã ngừng hoạt động.');
             }
 
-            // Khi cập nhật, kiểm tra món có tồn tại.
+            // Khi cập nhật, khóa món và kiểm tra món còn tồn tại, thuộc chuỗi.
             if ($action === 'update') {
                 if ($maMon === '') {
                     throw new RuntimeException('Mã món không hợp lệ.');
                 }
 
                 $checkDish = $pdo->prepare(
-                    "SELECT 1
+                    "SELECT m.maMon
                      FROM MonAn m
                      JOIN NhomMon n ON n.maNhom = m.maNhom
-                     WHERE m.maMon = ? AND n.maChuoi = ?"
+                     WHERE m.maMon = ? AND n.maChuoi = ?
+                     FOR UPDATE"
                 );
                 $checkDish->execute([$maMon, $maChuoi]);
 
@@ -114,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // Kiểm tra tên món bị trùng trong cùng nhóm.
+            // Kiểm tra tên món bị trùng trong cùng nhóm (R08: so sánh chuẩn hóa ở server).
             if (mon_an_duplicate(
                 $pdo,
                 $maNhom,
@@ -142,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $moTa !== '' ? $moTa : null
                 ]);
 
+                $pdo->commit();
                 mon_an_redirect('added');
             }
 
@@ -160,6 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $maMon
             ]);
 
+            $pdo->commit();
             mon_an_redirect('updated');
         }
 
@@ -172,7 +214,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->beginTransaction();
 
-            // Kiểm tra món thuộc chuỗi và tồn tại.
+            // Thứ tự khóa thống nhất với thêm/cập nhật: NhomMon -> MonAn -> ThucDonChiNhanh.
+            // Tìm nhóm món của món (chưa khóa) rồi khóa nhóm trước.
+            $findGroup = $pdo->prepare(
+                "SELECT n.maNhom
+                 FROM MonAn m
+                 JOIN NhomMon n ON n.maNhom = m.maNhom
+                 WHERE m.maMon = ? AND n.maChuoi = ?"
+            );
+            $findGroup->execute([$maMon, $maChuoi]);
+            $maNhomCuaMon = $findGroup->fetchColumn();
+
+            if ($maNhomCuaMon === false) {
+                throw new RuntimeException('Không tìm thấy món ăn.');
+            }
+
+            $lockGroup = $pdo->prepare('SELECT maNhom FROM NhomMon WHERE maNhom = ? FOR UPDATE');
+            $lockGroup->execute([$maNhomCuaMon]);
+
+            // Khóa món và đọc lại trạng thái sau khi chờ khóa.
             $check = $pdo->prepare(
                 "SELECT m.trangThai
                  FROM MonAn m
@@ -191,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Món ăn đã ngừng kinh doanh.');
             }
 
-            // Ngừng kinh doanh món ăn.
+            // Ngừng kinh doanh món ăn; giữ chi tiết đơn, giá và lịch sử định mức theo R08.
             $stmt = $pdo->prepare(
                 "UPDATE MonAn
                  SET trangThai = 'NGUNG'
@@ -199,11 +259,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $stmt->execute([$maMon]);
 
-            // Ngừng bán món tại các chi nhánh.
+            // Ngừng bán món tại các chi nhánh đang bán (idempotent).
             $stmt = $pdo->prepare(
                 "UPDATE ThucDonChiNhanh
                  SET trangThai = 'TAM_NGUNG'
-                 WHERE maMon = ?"
+                 WHERE maMon = ? AND trangThai = 'DANG_BAN'"
             );
             $stmt->execute([$maMon]);
 
@@ -216,6 +276,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+
+        if ($action === 'add' || $action === 'update') {
+            // Giữ nguyên form kèm dữ liệu vừa nhập để người dùng sửa và gửi lại.
+            $formSticky = [
+                'action' => $action,
+                'maMon' => trim(post_text('maMon')),
+                'maNhom' => trim(post_text('maNhom')),
+                'tenMon' => trim(post_text('tenMon')),
+                'donGia' => trim(post_text('donGia')),
+                'hinhAnh' => trim(post_text('hinhAnh')),
+                'moTa' => trim(post_text('moTa')),
+            ];
         }
 
         if ($e instanceof RuntimeException) {
@@ -247,7 +320,8 @@ $groupStmt = $pdo->prepare(
 $groupStmt->execute([$maChuoi]);
 $groups = $groupStmt->fetchAll();
 
-// Tìm kiếm và lọc nhóm món.
+// Tìm kiếm và lọc nhóm món (SD-23): tham số PDO bắt buộc; ký tự đại diện LIKE
+// được escape bằng ESCAPE '!' để % và _ trong từ khóa tìm đúng nghĩa chữ.
 $keyword = trim(is_string($_GET['q'] ?? null) ? $_GET['q'] : '');
 $selectedGroup = trim(is_string($_GET['group'] ?? null) ? $_GET['group'] : '');
 
@@ -261,9 +335,10 @@ $sql = "SELECT m.maMon, m.tenMon, m.donGia, m.hinhAnh, m.moTa,
 $params = [$maChuoi];
 
 if ($keyword !== '') {
-    $sql .= " AND (m.maMon LIKE ? OR m.tenMon LIKE ?)";
-    $params[] = '%' . $keyword . '%';
-    $params[] = '%' . $keyword . '%';
+    $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $keyword) . '%';
+    $sql .= " AND (m.maMon LIKE ? ESCAPE '!' OR m.tenMon LIKE ? ESCAPE '!')";
+    $params[] = $like;
+    $params[] = $like;
 }
 
 if ($selectedGroup !== '') {
@@ -276,6 +351,12 @@ $sql .= " ORDER BY m.trangThai ASC, n.tenNhom, m.tenMon";
 $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $dishes = $listStmt->fetchAll();
+
+// Liên kết giữ lại bộ lọc đang chọn: xem chi tiết, cập nhật hoặc hủy form
+// quay lại danh sách vẫn giữ từ khóa và nhóm món (luồng SD-20/23).
+$menuUrl = page_url('menu');
+$keywordQuery = $keyword !== '' ? '&q=' . rawurlencode($keyword) : '';
+$groupQuery = $selectedGroup !== '' ? '&group=' . rawurlencode($selectedGroup) : '';
 
 // Xem chi tiết món ăn.
 $detail = null;
@@ -294,10 +375,18 @@ if ($detailId !== '') {
 
 $canManage = can('menu.manage');
 
+// Lưu thất bại: nhận lại chế độ cập nhật từ dữ liệu vừa gửi.
+$sticky = is_array($formSticky) ? $formSticky : null;
+$stickyAction = $sticky['action'] ?? '';
+
+if ($stickyAction === 'update' && ($sticky['maMon'] ?? '') !== '') {
+    $editId = $sticky['maMon'];
+} else {
+    $editId = trim(is_string($_GET['edit'] ?? null) ? $_GET['edit'] : '');
+}
+
 // Lấy món cần cập nhật.
 $editDish = null;
-$editId = trim(is_string($_GET['edit'] ?? null) ? $_GET['edit'] : '');
-
 if ($editId !== '' && $canManage) {
     $stmt = $pdo->prepare(
         "SELECT m.*
@@ -309,9 +398,20 @@ if ($editId !== '' && $canManage) {
     $editDish = $stmt->fetch() ?: null;
 }
 
-// Chỉ mở form khi người dùng chọn thêm hoặc cập nhật.
-$addMode = ($_GET['add'] ?? '') === '1';
+// Chỉ mở form khi người dùng chọn thêm, cập nhật hoặc khi lưu thất bại cần nhập lại.
+$addMode = ($_GET['add'] ?? '') === '1' || $stickyAction === 'add';
 $showForm = $addMode || $editId !== '';
+
+// Giá trị hiển thị trong form: ưu tiên dữ liệu vừa nhập khi có lỗi, sau đó dữ liệu món trong DB.
+$formValues = [
+    'maNhom' => $sticky['maNhom'] ?? (string)($editDish['maNhom'] ?? ''),
+    'tenMon' => $sticky['tenMon'] ?? (string)($editDish['tenMon'] ?? ''),
+    'donGia' => $sticky['donGia'] ?? (string)($editDish['donGia'] ?? ''),
+    'hinhAnh' => $sticky['hinhAnh'] ?? (string)($editDish['hinhAnh'] ?? ''),
+    'moTa' => $sticky['moTa'] ?? (string)($editDish['moTa'] ?? ''),
+];
+$formIsUpdate = $stickyAction === 'update' || $editDish !== null;
+$formMaMon = (string)($editDish['maMon'] ?? ($sticky['maMon'] ?? ''));
 ?>
 
 <div class="screen-content menu-management">
@@ -323,7 +423,7 @@ $showForm = $addMode || $editId !== '';
         </div>
 
         <?php if ($canManage): ?>
-            <a href="<?= e(page_url('menu')) ?>&add=1#form-mon-an"
+            <a href="<?= e($menuUrl . '&add=1' . $keywordQuery . $groupQuery) ?>#form-mon-an"
                class="btn btn-primary">
                 + Thêm món ăn
             </a>
@@ -343,6 +443,18 @@ $showForm = $addMode || $editId !== '';
             <h3>Chi tiết món ăn</h3>
 
             <?php if ($detail): ?>
+                <?php if (!empty($detail['hinhAnh'])): ?>
+                    <div class="food-thumb detail-thumb">
+                        <img class="food-thumb-img"
+                             src="<?= e($detail['hinhAnh']) ?>"
+                             alt="<?= e($detail['tenMon']) ?>"
+                             referrerpolicy="no-referrer"
+                             onload="this.classList.add('is-loaded')"
+                             onerror="this.remove()">
+                        <span class="food-thumb-fallback"><?= e(mb_strtoupper(mb_substr($detail['tenMon'], 0, 2))) ?></span>
+                    </div>
+                <?php endif; ?>
+
                 <p><strong>Mã món:</strong> <?= e($detail['maMon']) ?></p>
                 <p><strong>Tên món:</strong> <?= e($detail['tenMon']) ?></p>
                 <p><strong>Nhóm món:</strong> <?= e($detail['tenNhom']) ?></p>
@@ -354,7 +466,7 @@ $showForm = $addMode || $editId !== '';
 
                 <?php if ($canManage): ?>
                     <a class="btn btn-primary"
-                       href="<?= e(page_url('menu')) ?>&edit=<?= rawurlencode($detail['maMon']) ?>">
+                       href="<?= e($menuUrl . '&edit=' . rawurlencode($detail['maMon']) . $keywordQuery . $groupQuery) ?>#form-mon-an">
                         Cập nhật món ăn
                     </a>
                 <?php endif; ?>
@@ -362,7 +474,7 @@ $showForm = $addMode || $editId !== '';
                 <p>Không tìm thấy món ăn.</p>
             <?php endif; ?>
 
-            <a class="btn btn-ghost" href="<?= e(page_url('menu')) ?>">
+            <a class="btn btn-ghost" href="<?= e($menuUrl . $keywordQuery . $groupQuery) ?>">
                 Quay lại danh sách
             </a>
         </div>
@@ -373,6 +485,7 @@ $showForm = $addMode || $editId !== '';
 
             <form method="get" action="index.php" class="search-wide">
                 <input type="hidden" name="page" value="menu">
+                <input type="hidden" name="group" value="<?= e($selectedGroup) ?>">
                 <input class="control" type="text" name="q"
                        value="<?= e($keyword) ?>"
                        placeholder="Tìm món ăn, mã món...">
@@ -383,13 +496,13 @@ $showForm = $addMode || $editId !== '';
 
             <div class="category-tabs">
                 <a class="btn <?= $selectedGroup === '' ? 'btn-primary' : 'btn-ghost' ?>"
-                   href="<?= e(page_url('menu')) ?>">
+                   href="<?= e($menuUrl . $keywordQuery) ?>">
                     Tất cả
                 </a>
 
                 <?php foreach ($groups as $group): ?>
                     <a class="btn <?= $selectedGroup === $group['maNhom'] ? 'btn-primary' : 'btn-ghost' ?>"
-                       href="<?= e(page_url('menu')) ?>&group=<?= rawurlencode($group['maNhom']) ?>">
+                       href="<?= e($menuUrl . $keywordQuery . '&group=' . rawurlencode($group['maNhom'])) ?>">
                         <?= e($group['tenNhom']) ?>
                     </a>
                 <?php endforeach; ?>
@@ -407,7 +520,16 @@ $showForm = $addMode || $editId !== '';
                 <div class="card menu-card <?= $dish['trangThai'] === 'NGUNG' ? 'disabled-card' : '' ?>">
 
                     <div class="food-thumb">
-                        <?= e(mb_strtoupper(mb_substr($dish['tenMon'], 0, 2))) ?>
+                        <?php if (!empty($dish['hinhAnh'])): ?>
+                            <img class="food-thumb-img"
+                                 src="<?= e($dish['hinhAnh']) ?>"
+                                 alt="<?= e($dish['tenMon']) ?>"
+                                 loading="lazy"
+                                 referrerpolicy="no-referrer"
+                                 onload="this.classList.add('is-loaded')"
+                                 onerror="this.remove()">
+                        <?php endif; ?>
+                        <span class="food-thumb-fallback"><?= e(mb_strtoupper(mb_substr($dish['tenMon'], 0, 2))) ?></span>
                     </div>
 
                     <div class="menu-info">
@@ -429,13 +551,13 @@ $showForm = $addMode || $editId !== '';
                         <small><?= e($dish['maMon']) ?></small>
 
                         <a class="btn btn-ghost"
-                           href="<?= e(page_url('menu')) ?>&detail=<?= rawurlencode($dish['maMon']) ?>">
+                           href="<?= e($menuUrl . '&detail=' . rawurlencode($dish['maMon']) . $keywordQuery . $groupQuery) ?>">
                             Xem chi tiết
                         </a>
 
                         <?php if ($canManage): ?>
                             <a class="btn btn-secondary"
-                               href="<?= e(page_url('menu')) ?>&edit=<?= rawurlencode($dish['maMon']) ?>">
+                               href="<?= e($menuUrl . '&edit=' . rawurlencode($dish['maMon']) . $keywordQuery . $groupQuery) ?>#form-mon-an">
                                 Cập nhật
                             </a>
 
@@ -461,9 +583,9 @@ $showForm = $addMode || $editId !== '';
     <?php if ($canManage && $showForm): ?>
         <div class="card" id="form-mon-an" style="padding:20px;margin-top:24px;">
 
-            <h3><?= $editDish ? 'Cập nhật món ăn' : 'Thêm món ăn mới' ?></h3>
+            <h3><?= $formIsUpdate ? 'Cập nhật món ăn' : 'Thêm món ăn mới' ?></h3>
 
-            <?php if ($editId !== '' && !$editDish): ?>
+            <?php if ($editId !== '' && !$editDish && $sticky === null): ?>
                 <p>Không tìm thấy món ăn cần cập nhật.</p>
             <?php else: ?>
 
@@ -471,11 +593,11 @@ $showForm = $addMode || $editId !== '';
                     <?= csrf_input() ?>
 
                     <input type="hidden" name="action"
-                           value="<?= $editDish ? 'update' : 'add' ?>">
+                           value="<?= $formIsUpdate ? 'update' : 'add' ?>">
 
-                    <?php if ($editDish): ?>
+                    <?php if ($formIsUpdate): ?>
                         <input type="hidden" name="maMon"
-                               value="<?= e($editDish['maMon']) ?>">
+                               value="<?= e($formMaMon) ?>">
                     <?php endif; ?>
 
                     <div class="form-grid">
@@ -484,7 +606,7 @@ $showForm = $addMode || $editId !== '';
                             <label class="field-label">Tên món ăn</label>
                             <input class="control" type="text" name="tenMon"
                                    maxlength="100" required
-                                   value="<?= e($editDish['tenMon'] ?? '') ?>">
+                                   value="<?= e($formValues['tenMon']) ?>">
                         </div>
 
                         <div class="field">
@@ -494,7 +616,7 @@ $showForm = $addMode || $editId !== '';
 
                                 <?php foreach ($groups as $group): ?>
                                     <option value="<?= e($group['maNhom']) ?>"
-                                        <?= ($editDish['maNhom'] ?? '') === $group['maNhom'] ? 'selected' : '' ?>>
+                                        <?= $formValues['maNhom'] === $group['maNhom'] ? 'selected' : '' ?>>
                                         <?= e($group['tenNhom']) ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -506,30 +628,50 @@ $showForm = $addMode || $editId !== '';
                             <label class="field-label">Đơn giá (VNĐ)</label>
                             <input class="control" type="number" name="donGia"
                                    min="0" step="0.01" required
-                                   value="<?= e((string)($editDish['donGia'] ?? '')) ?>">
+                                   value="<?= e($formValues['donGia']) ?>">
                         </div>
 
                         <div class="field">
-                            <label class="field-label">Đường dẫn hình ảnh (nếu có)</label>
-                            <input class="control" type="text" name="hinhAnh"
-                                   maxlength="255"
-                                   value="<?= e($editDish['hinhAnh'] ?? '') ?>">
+                            <label class="field-label">Ảnh món ăn (lấy từ Google Ảnh)</label>
+
+                            <div class="field-image-row">
+                                <input class="control" type="text" name="hinhAnh"
+                                       maxlength="255" autocomplete="off"
+                                       data-mon-an-url
+                                       placeholder="Dán địa chỉ ảnh hoặc bấm nút bên cạnh"
+                                       value="<?= e($formValues['hinhAnh']) ?>">
+                                <button type="button" class="btn btn-secondary" data-mon-an-google>
+                                    Tìm ảnh trên Google
+                                </button>
+                            </div>
+
+                            <img class="mon-an-preview" data-mon-an-preview
+                                 alt="Xem trước ảnh món ăn" referrerpolicy="no-referrer">
+                            <p class="mon-an-image-status" data-mon-an-status></p>
+                            <p class="mon-an-image-hint">
+                                Bấm "Tìm ảnh trên Google" để mở Google Ảnh với tên món đã nhập.
+                                Chọn ảnh, sao chép địa chỉ hình ảnh rồi dán vào ô trên; link dạng
+                                google.com/imgres?imgurl=... sẽ được tự đổi thành ảnh gốc.
+                            </p>
+                            <button type="button" class="btn btn-ghost mon-an-clear" data-mon-an-clear>
+                                Xóa ảnh đã chọn
+                            </button>
                         </div>
 
                         <div class="field">
                             <label class="field-label">Mô tả</label>
                             <textarea class="control textarea" name="moTa"
-                                      maxlength="500"><?= e($editDish['moTa'] ?? '') ?></textarea>
+                                      maxlength="500"><?= e($formValues['moTa']) ?></textarea>
                         </div>
 
                     </div>
 
                     <div class="modal-actions">
                         <button type="submit" class="btn btn-primary">
-                            <?= $editDish ? 'Lưu cập nhật' : 'Thêm món ăn' ?>
+                            <?= $formIsUpdate ? 'Lưu cập nhật' : 'Thêm món ăn' ?>
                         </button>
 
-                        <a href="<?= e(page_url('menu')) ?>" class="btn btn-ghost">
+                        <a href="<?= e($menuUrl . $keywordQuery . $groupQuery) ?>" class="btn btn-ghost">
                             Hủy
                         </a>
                     </div>
