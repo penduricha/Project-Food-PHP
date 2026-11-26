@@ -42,6 +42,11 @@
     <link rel="stylesheet" href="<?= e(url('assets/css/chi-nhanh.css')) ?>?v=<?= filemtime(APP_ROOT . '/assets/css/chi-nhanh.css') ?>" data-chi-nhanh-assets>
     <script src="<?= e(url('assets/js/chi-nhanh.js')) ?>?v=<?= filemtime(APP_ROOT . '/assets/js/chi-nhanh.js') ?>" defer data-chi-nhanh-assets></script>
     <?php endif; ?>
+
+    <?php if ($pageKey === 'menu'): ?>
+    <link rel="stylesheet" href="<?= e(url('assets/css/mon-an.css')) ?>?v=<?= filemtime(APP_ROOT . '/assets/css/mon-an.css') ?>">
+    <script src="<?= e(url('assets/js/mon-an-image.js')) ?>?v=<?= filemtime(APP_ROOT . '/assets/js/mon-an-image.js') ?>" defer></script>
+    <?php endif; ?>
     <?php if (!$isCustomer): ?>
     <link rel="stylesheet" href="<?= e(url('assets/css/internal-theme.css')) ?>?v=<?= filemtime(APP_ROOT . '/assets/css/internal-theme.css') ?>">
     <?php endif; ?>

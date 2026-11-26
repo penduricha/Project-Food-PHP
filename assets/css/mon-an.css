@@ -1,0 +1,16 @@
+/* Module mon-an: hiển thị ảnh món ăn lấy từ Google Ảnh và hộp chọn ảnh (SD-19/21/24).
+   Ảnh đè lên nền chữ viết tắt; ảnh chưa tải hoặc lỗi thì ẩn đi, giữ nguyên chữ viết tắt. */
+.menu-management .food-thumb{position:relative;overflow:hidden}
+.menu-management .food-thumb-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .2s ease}
+.menu-management .food-thumb-img.is-loaded{opacity:1}
+.menu-management .food-thumb-fallback{display:grid;place-items:center;width:100%;height:100%}
+.menu-management .food-thumb.detail-thumb{width:220px;height:150px;border-radius:12px;margin-bottom:14px}
+
+/* Hộp chọn ảnh trong form thêm/cập nhật món ăn */
+.menu-management .field-image-row{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}
+.menu-management .field-image-row .control{flex:1 1 220px}
+.menu-management .mon-an-preview{display:none;margin-top:10px;max-width:260px;max-height:170px;object-fit:cover;border:1px solid #cbd5e1;border-radius:12px}
+.menu-management .mon-an-preview.is-loaded{display:block}
+.menu-management .mon-an-image-status{margin-top:6px;min-height:1em;font-size:12px;color:#e05638}
+.menu-management .mon-an-image-hint{margin-top:4px;font-size:12px;line-height:1.6;color:#7f8ca3}
+.menu-management .mon-an-clear{margin-top:10px}
